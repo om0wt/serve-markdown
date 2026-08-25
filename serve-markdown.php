@@ -3,7 +3,7 @@
  * Plugin Name: Serve Markdown
  * Plugin URI:  https://github.com/ajaykj/serve-markdown
  * Description: Serve Markdown versions of your content for AI agents and crawlers. Features content negotiation, .md URLs, auto-discovery, crawler logging, and full admin controls.
- * Version:     1.0
+ * Version:     1.0.4
  * Author:      Azey
  * Author URI:  https://profiles.wordpress.org/akumarjain/
  * License:     GPL-3.0-or-later
@@ -17,7 +17,7 @@ if ( ! defined( 'WPINC' ) ) {
 	exit;
 }
 
-define( 'SERVE_MD_VERSION', '1.0' );
+define( 'SERVE_MD_VERSION', '1.0.4' );
 define( 'SERVE_MD_FILE', __FILE__ );
 define( 'SERVE_MD_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SERVE_MD_URL', plugin_dir_url( __FILE__ ) );

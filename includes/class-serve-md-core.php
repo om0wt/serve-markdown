@@ -80,7 +80,18 @@ final class Serve_MD_Core {
 		$post_id    = url_to_postid( $clean_url );
 
 		if ( $post_id > 0 ) {
-			return [ 'p' => $post_id, 'serve_md_format' => 'md' ];
+			// Pages resolve via page_id, not p; custom post types need post_type
+			// alongside p. Using p for a page yields an empty query -> 404 -> the
+			// canonical redirect strips the .md suffix (301).
+			$pt = get_post_type( $post_id );
+			if ( 'page' === $pt ) {
+				return [ 'page_id' => $post_id, 'serve_md_format' => 'md' ];
+			}
+			$qv = [ 'p' => $post_id, 'serve_md_format' => 'md' ];
+			if ( 'post' !== $pt ) {
+				$qv['post_type'] = $pt;
+			}
+			return $qv;
 		}
 
 		return $query_vars;
@@ -445,7 +456,22 @@ final class Serve_MD_Core {
 	 * ----------------------------------------------------------------*/
 
 	private function html_to_markdown( WP_Post $post ): string {
-		$html = apply_filters( 'the_content', $post->post_content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Calling WP core filter, not registering one
+		// Render inside the main loop when this post IS the queried object, so
+		// theme filters that gate on in_the_loop()/is_main_query() run — e.g. a
+		// calendar or table a theme injects into the_content only during the main
+		// loop. A bare apply_filters() leaves in_the_loop() false and drops them.
+		// Falls back to the raw filter for any post that is not the current query.
+		if ( get_queried_object_id() === $post->ID && have_posts() ) {
+			ob_start();
+			while ( have_posts() ) {
+				the_post();
+				the_content();
+			}
+			$html = (string) ob_get_clean();
+			rewind_posts();
+		} else {
+			$html = apply_filters( 'the_content', $post->post_content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Calling WP core filter, not registering one
+		}
 		$html = trim( $html );
 
 		if ( empty( $html ) ) {
@@ -482,8 +508,17 @@ final class Serve_MD_Core {
 		$md = preg_replace( '/<img[^>]+src=["\']([^"\']*)["\'][^>]+alt=["\']([^"\']*)["\'][^>]*\/?>/si', '![$2]($1)', $md );
 		$md = preg_replace( '/<img[^>]+src=["\']([^"\']*)["\'][^>]*\/?>/si', '![]($1)', $md );
 
-		// Links.
-		$md = preg_replace( '/<a[^>]+href=["\']([^"\']*)["\'][^>]*>(.*?)<\/a>/si', '[$2]($1)', $md );
+		// Links. Collapse whitespace in the label: block markup pretty-prints
+		// anchors across lines (e.g. button links), and raw newlines/indentation
+		// inside [ ... ] break the Markdown link.
+		$md = preg_replace_callback(
+			'/<a[^>]+href=["\']([^"\']*)["\'][^>]*>(.*?)<\/a>/si',
+			function ( $m ) {
+				$text = trim( preg_replace( '/\s+/', ' ', $m[2] ) );
+				return '[' . $text . '](' . $m[1] . ')';
+			},
+			$md
+		);
 
 		// Bold.
 		$md = preg_replace( '/<(strong|b)>(.*?)<\/\1>/si', '**$2**', $md );
@@ -529,6 +564,11 @@ final class Serve_MD_Core {
 
 		// Decode entities.
 		$md = html_entity_decode( $md, ENT_QUOTES, 'UTF-8' );
+
+		// Left-trim every line: pretty-printed block HTML leaves deep indentation
+		// that Markdown misreads as indented code blocks (4+ leading spaces). This
+		// runs before the pre blocks are restored, so fenced code keeps its layout.
+		$md = preg_replace( '/^[ \t]+/m', '', $md );
 
 		// Restore pre blocks.
 		foreach ( $pre_blocks as $key => $block ) {
